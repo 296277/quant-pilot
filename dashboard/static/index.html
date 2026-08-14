@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>量化交易面板</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span><i></i><b></b></div>
+        <div>
+          <strong>量化面板</strong>
+          <small>QUANT DASHBOARD</small>
+        </div>
+      </div>
+      <div class="environment-chip"><span></span> Quant Panel <b>本地</b></div>
+      <nav class="nav-list terminal-nav" aria-label="主导航">
+        <button class="nav-item active" data-view="market"><span>▦</span><b>看板</b></button>
+        <button class="nav-item" data-view="watchlist"><span>☆</span><b>自选</b></button>
+        <button class="nav-item" data-view="factory"><span>⌁</span><b>策略</b></button>
+        <button class="nav-item" data-view="backtest"><span>◴</span><b>回测</b></button>
+        <button class="nav-item" data-view="monitor"><span>⌾</span><b>监控中心</b><em id="monitorBadge"></em></button>
+        <button class="nav-item" data-view="ladder"><span>♨</span><b>连板梯队</b></button>
+        <button class="nav-item" data-view="concepts"><span>◇</span><b>概念分析</b></button>
+        <button class="nav-item" data-view="industry"><span>▥</span><b>行业分析</b></button>
+        <button class="nav-item" data-view="stock"><span>⌁</span><b>个股分析</b></button>
+        <button class="nav-item" data-view="finance"><span>▤</span><b>财务</b></button>
+        <button class="nav-item" data-view="indices"><span>▥</span><b>指数</b></button>
+        <button class="nav-item" data-view="paper"><span>◎</span><b>交易</b></button>
+        <button class="nav-item" data-view="data"><span>◫</span><b>数据</b></button>
+        <button class="nav-item terminal-secondary" data-view="theme"><span>◈</span><b>主题候选</b></button>
+        <button class="nav-item terminal-secondary" data-view="environment"><span>⌘</span><b>环境状态</b></button>
+      </nav>
+      <div class="sidebar-foot">
+        <div><span class="status-dot"></span>模拟交易模式</div>
+        <small>OKX Demo · 禁止实盘下单</small>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <button class="icon-button menu-button" id="menuButton" aria-label="打开导航">☰</button>
+        <div>
+          <h1 id="pageTitle">市场看板</h1>
+          <p id="pageSubtitle">公开市场快照、指数趋势与研究标的池</p>
+        </div>
+        <div class="topbar-actions">
+          <span class="clock" id="clock"></span>
+          <button class="icon-button" id="refreshButton" aria-label="刷新当前页面" title="刷新">↻</button>
+        </div>
+      </header>
+
+      <section class="view active" id="view-market"><div id="marketContent" class="page-loading">正在读取市场快照…</div></section>
+      <section class="view" id="view-watchlist"><div id="watchlistContent" class="page-loading">正在读取自选…</div></section>
+      <section class="view" id="view-backtest"><div id="backtestContent"></div></section>
+      <section class="view" id="view-monitor"><div id="monitorContent" class="page-loading">正在读取监控规则…</div></section>
+      <section class="view" id="view-ladder"><div id="ladderContent" class="page-loading">正在计算连板梯队…</div></section>
+      <section class="view" id="view-concepts"><div id="conceptContent" class="page-loading">正在读取概念统计…</div></section>
+      <section class="view" id="view-industry"><div id="industryContent" class="page-loading">正在读取行业统计…</div></section>
+      <section class="view" id="view-stock"><div id="stockAnalysisContent"></div></section>
+      <section class="view" id="view-finance"><div id="financeContent"></div></section>
+      <section class="view" id="view-indices"><div id="indicesContent" class="page-loading">正在读取指数…</div></section>
+
+      <section class="view" id="view-factory">
+        <div class="factory-controls">
+          <div class="control-group source-control">
+            <label for="dataSourceSelect">数据来源</label>
+            <select id="dataSourceSelect"></select>
+          </div>
+          <div class="control-group grow" id="groupControl">
+            <label for="groupSelect" id="groupLabel">板块</label>
+            <select id="groupSelect"></select>
+          </div>
+          <div class="control-group grow" id="assetControl">
+            <label for="assetSelect" id="assetLabel">股票</label>
+            <div class="asset-select-combo" id="assetSelectCombo">
+              <select id="assetSelect"></select>
+              <input id="customSymbolInput" class="custom-symbol-input" inputmode="text" maxlength="8" placeholder="600519 / sh600519" aria-label="自定义股票代码">
+              <input id="customAssetNameInput" maxlength="40" placeholder="自定义名称（可选）" aria-label="自定义标的显示名称">
+            </div>
+          </div>
+          <div class="control-group grow hidden" id="localControl">
+            <label for="datasetSelect" id="datasetLabel">本地行情日线</label>
+            <select id="datasetSelect"></select>
+          </div>
+          <div class="cost-pair">
+            <div class="control-group compact"><label for="buyCost">买入费率</label><input id="buyCost" type="number" value="0.05" min="0" max="5" step="0.01"><span>%</span></div>
+            <div class="control-group compact"><label for="sellCost">卖出费率</label><input id="sellCost" type="number" value="0.10" min="0" max="5" step="0.01"><span>%</span></div>
+          </div>
+          <button class="primary-button" id="generateButton"><span>▶</span> 生成候选</button>
+        </div>
+
+        <div class="factory-status hidden" id="factoryStatus">
+          <div class="status-main"><strong id="stockLabel"></strong><span id="stockSource"></span></div>
+          <div class="status-metrics" id="stockMetrics"></div>
+        </div>
+
+        <div class="empty-state" id="factoryEmpty">
+          <div class="empty-signal"><i></i><i></i><i></i><i></i><i></i></div>
+          <strong>等待生成候选策略</strong>
+          <span>候选参数来自训练段，排序依据为样本外研究评分</span>
+        </div>
+
+        <div class="factory-results hidden" id="factoryResults">
+          <div class="section-heading">
+            <div><h2>候选策略</h2><span id="candidateMeta"></span></div>
+            <div class="legend"><span><i class="strategy-dot"></i>策略</span><span><i class="benchmark-dot"></i>买入持有</span></div>
+          </div>
+          <div class="candidate-grid" id="candidateGrid"></div>
+
+          <div class="strategy-workspace">
+            <div class="strategy-summary">
+              <div class="strategy-title-line">
+                <div><span class="family-tag" id="detailFamily"></span><h2 id="detailName"></h2></div>
+                <div class="strategy-actions"><span class="rank-badge" id="detailRank"></span><button class="secondary-button" id="paperDraftButton">◎ 本地模拟</button><button class="secondary-button" id="okxDraftButton">部署到 OKX Demo</button></div>
+              </div>
+              <p id="detailDescription"></p>
+              <div class="parameter-strip" id="detailParameters"></div>
+            </div>
+            <div class="metrics-grid" id="detailMetrics"></div>
+            <div class="chart-panel">
+              <div class="chart-header">
+                <div><h3>净值对比</h3><span id="chartPeriod"></span></div>
+                <div class="chart-tabs"><button class="active" data-chart="equity">净值</button><button data-chart="price">价格</button></div>
+              </div>
+              <div class="chart-wrap" id="strategyChart"></div>
+            </div>
+            <div class="detail-bottom">
+              <section class="risk-panel">
+                <div class="section-heading"><div><h3>边界与风险</h3></div></div>
+                <p id="detailRisk"></p>
+                <div class="strategy-rules" id="detailRules"></div>
+                <div class="validation-notes">
+                  <span>收盘后产生信号</span><span>次日开盘执行</span><span>训练 / 测试隔离</span><span>含双边成本</span>
+                </div>
+              </section>
+              <section class="trades-panel">
+                <div class="section-heading"><div><h3>最近交易</h3><span id="tradeCount"></span></div></div>
+                <div class="table-scroll"><table><thead><tr><th>买入</th><th>卖出</th><th>持有</th><th>净收益</th></tr></thead><tbody id="tradeRows"></tbody></table></div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-paper"><div id="paperContent" class="page-loading">正在读取模拟账户…</div></section>
+      <section class="view" id="view-theme"><div id="themeContent" class="page-loading">正在读取主题池…</div></section>
+      <section class="view" id="view-data"><div id="dataContent" class="page-loading">正在读取数据资产…</div></section>
+      <section class="view" id="view-environment">
+        <div class="environment-page">
+          <div class="environment-actions">
+            <div><h2>运行环境自检</h2><p>验证 Python、NumPy、Pandas、策略引擎与行情接口。</p></div>
+            <label class="toggle"><input type="checkbox" id="networkToggle"><span></span>同时检查腾讯行情</label>
+            <button class="primary-button" id="checkEnvironment">运行自检</button>
+          </div>
+          <pre class="console" id="environmentConsole"><span>$</span> 等待执行</pre>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+  <script src="/app.js" defer></script>
+  <script src="/terminal.js" defer></script>
+</body>
+</html>
