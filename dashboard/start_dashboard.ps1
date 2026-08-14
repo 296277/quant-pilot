@@ -36,13 +36,13 @@ $dashboardUrl = "http://${DashboardHost}:$Port"
 $healthUrl = "$dashboardUrl/api/ping"
 
 function Write-Status([string]$Message) {
-    Write-Host "[量化面板] $Message"
+    Write-Host "[QuantPilot] $Message"
 }
 
 function Test-DashboardHealth {
     try {
         $response = Invoke-RestMethod -Uri $healthUrl -Method Get -TimeoutSec 2
-        return $response.ok -eq $true -and $response.service -eq 'quant-research-dashboard'
+        return $response.ok -eq $true -and $response.service -eq 'quantpilot-dashboard'
     }
     catch {
         return $false

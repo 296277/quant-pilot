@@ -606,7 +606,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/ping":
                 self.send_json({
                     "ok": True,
-                    "service": "quant-research-dashboard",
+                    "service": "quantpilot-dashboard",
                     "time": datetime.now().isoformat(timespec="seconds"),
                 })
                 return
@@ -737,12 +737,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Start the local quant research dashboard")
+    parser = argparse.ArgumentParser(description="Start the local QuantPilot dashboard")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8765, type=int)
     args = parser.parse_args()
     server = ThreadingHTTPServer((args.host, args.port), DashboardHandler)
-    print(f"Quant dashboard: http://{args.host}:{args.port}")
+    print(f"QuantPilot: http://{args.host}:{args.port}")
     print("Simulation mode; OKX orders are Demo-only and live trading is disabled.")
     try:
         server.serve_forever()
