@@ -8,8 +8,8 @@ portfolio backtests, monitoring, sector/theme/index analysis, local paper
 trading, and OKX Demo paper trading.
 
 > **Current status: early experimental version.** The project is still rough
-> and some data sources, analysis pages, strategy parameters, error handling,
-> and broker adapters are incomplete. It is intended for learning, research,
+> and some data sources, analysis pages, parameter guidance, advanced risk
+> controls, error handling, and broker adapters are incomplete. It is intended for learning, research,
 > and paper testing only. It is not investment or automated-trading advice,
 > has no live-order entry point, and does not promise any returns.
 
@@ -61,21 +61,23 @@ Then run the Windows launcher, or start the service manually:
 | Market analysis | Limit-up ladder, theme, sector, stock, index analysis, and financial-data coverage boundaries |
 | Strategy candidates | Generate and rank up to 14 candidates for A-shares or cryptocurrencies |
 | Strategy library | Trend, breakout, mean reversion, SuperTrend + ADX, Turtle breakout, Bollinger + RSI, MACD + volume, volatility squeeze, multi-timeframe, relative strength, regime adaptive, and signal voting strategies |
+| Parameter Lab | Edit validated strategy parameters and recalculate full-sample and out-of-sample results; save, load, copy, delete, import, and export browser-local strategy versions |
 | Research validation | Train/test separation, out-of-sample return, buy-and-hold benchmark, drawdown, Sharpe, win rate, trade count, and fee modeling |
 | Portfolio backtest | Multi-asset portfolios with capital, position limits, exposure, stop loss, take profit, holding period, and trade details |
 | Local paper trading | Replay a selected strategy through the holdout sample with cash, positions, orders, P&L, and equity history |
 | OKX Demo | Encrypted Demo credentials, balance/position/order/fill sync, adjustable parameters, signal preview, and confirmed simulated orders |
 | miniQMT | Read-only synchronization of a local QMT A-share account; no order API is called |
-| Data and environment | Local CSV assets, network-source fallback, and Python/NumPy/Pandas/strategy-engine checks |
+| Data and environment | Unified data mode, coverage, trading date, update time, and live/delayed/cached state, plus parallel health checks for A-share, index, limit-up pool, crypto, and local-file sources |
 
 ## Typical Workflow
 
 1. Review indices, breadth, and sector conditions, or add assets to the watchlist.
 2. Open Strategy and choose Tencent A-shares, Gate.io crypto, or a local CSV snapshot, then select a sector and asset.
 3. Generate candidates and compare out-of-sample return, benchmark-relative return, drawdown, Sharpe, and trade count.
-4. Inspect a candidate's rules, parameters, equity curve, and recent trades.
-5. Send the strategy to a local paper account for historical replay; crypto candidates can also be sent to OKX Demo.
-6. In OKX Demo, adjust parameters, calculate a signal from the latest completed daily bar, and confirm a simulated order after review.
+4. Inspect a candidate's rules, parameters, equity curve, and recent trades; edit parameters, recalculate, and save useful variants locally.
+5. Open Data to review each source's mode, trading date, update time, and availability.
+6. Send the strategy to a local paper account for historical replay; crypto candidates can also be sent to OKX Demo.
+7. In OKX Demo, adjust parameters, calculate a signal from the latest completed daily bar, and confirm a simulated order after review.
 
 QuantPilot does not run unattended strategies in the background and never
 submits live orders.
@@ -84,7 +86,7 @@ submits live orders.
 
 - Tencent public A-share quotes.
 - Gate.io public cryptocurrency candles.
-- Eastmoney as a partial fallback for market snapshots.
+- Eastmoney for the full-market limit-up pool and as a partial market-snapshot fallback.
 - Local CSV snapshots under `data/raw/`.
 
 When network data is unavailable, the market page retains the last local

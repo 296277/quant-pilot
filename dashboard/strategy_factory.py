@@ -649,6 +649,137 @@ def _sample_series(ledger: pd.DataFrame, split: int) -> list[dict[str, Any]]:
     ]
 
 
+PARAMETER_SPECS: dict[str, dict[str, Any]] = {
+    "fast": {"label": "快周期", "min": 2, "max": 200, "step": 1, "integer": True},
+    "slow": {"label": "慢周期", "min": 5, "max": 400, "step": 1, "integer": True},
+    "entry_window": {"label": "入场窗口", "min": 5, "max": 250, "step": 1, "integer": True},
+    "exit_window": {"label": "退出窗口", "min": 2, "max": 150, "step": 1, "integer": True},
+    "window": {"label": "计算窗口", "min": 5, "max": 250, "step": 1, "integer": True},
+    "width": {"label": "波动带宽", "min": 0.5, "max": 5, "step": 0.1},
+    "period": {"label": "指标周期", "min": 2, "max": 100, "step": 1, "integer": True},
+    "entry": {"label": "入场阈值", "min": 1, "max": 80, "step": 1},
+    "exit": {"label": "退出阈值", "min": 20, "max": 99, "step": 1},
+    "lookback": {"label": "回看周期", "min": 5, "max": 300, "step": 1, "integer": True},
+    "filter_window": {"label": "过滤周期", "min": 10, "max": 400, "step": 1, "integer": True},
+    "atr_period": {"label": "ATR 周期", "min": 2, "max": 100, "step": 1, "integer": True},
+    "atr_multiplier": {"label": "ATR 倍数", "min": 0.5, "max": 10, "step": 0.1},
+    "adx_period": {"label": "ADX 周期", "min": 2, "max": 100, "step": 1, "integer": True},
+    "adx_threshold": {"label": "ADX 阈值", "min": 5, "max": 60, "step": 1},
+    "stop_atr": {"label": "ATR 止损", "min": 0.5, "max": 10, "step": 0.1},
+    "risk_fraction": {"label": "单次风险比例", "min": 0.001, "max": 0.1, "step": 0.001},
+    "max_exposure": {"label": "最大仓位", "min": 0.05, "max": 1, "step": 0.05},
+    "rsi_period": {"label": "RSI 周期", "min": 2, "max": 100, "step": 1, "integer": True},
+    "rsi_entry": {"label": "RSI 入场", "min": 1, "max": 80, "step": 1},
+    "rsi_exit": {"label": "RSI 退出", "min": 20, "max": 99, "step": 1},
+    "signal": {"label": "信号周期", "min": 2, "max": 100, "step": 1, "integer": True},
+    "volume_window": {"label": "均量窗口", "min": 2, "max": 250, "step": 1, "integer": True},
+    "volume_multiplier": {"label": "放量倍数", "min": 0.5, "max": 5, "step": 0.05},
+    "boll_width": {"label": "布林带宽", "min": 0.5, "max": 5, "step": 0.1},
+    "keltner_width": {"label": "Keltner 带宽", "min": 0.5, "max": 5, "step": 0.1},
+    "weekly_fast": {"label": "周线快周期", "min": 2, "max": 100, "step": 1, "integer": True},
+    "weekly_slow": {"label": "周线慢周期", "min": 5, "max": 200, "step": 1, "integer": True},
+    "daily_ema": {"label": "日线 EMA", "min": 2, "max": 250, "step": 1, "integer": True},
+    "top_fraction": {"label": "板块前列比例", "min": 0.1, "max": 1, "step": 0.05},
+    "trend_window": {"label": "趋势窗口", "min": 5, "max": 300, "step": 1, "integer": True},
+    "breakout_window": {"label": "突破窗口", "min": 5, "max": 250, "step": 1, "integer": True},
+    "breakout_exit": {"label": "突破退出窗口", "min": 2, "max": 150, "step": 1, "integer": True},
+    "boll_window": {"label": "布林窗口", "min": 5, "max": 250, "step": 1, "integer": True},
+    "macd_fast": {"label": "MACD 快周期", "min": 2, "max": 100, "step": 1, "integer": True},
+    "macd_slow": {"label": "MACD 慢周期", "min": 5, "max": 200, "step": 1, "integer": True},
+    "macd_signal": {"label": "MACD 信号周期", "min": 2, "max": 100, "step": 1, "integer": True},
+    "entry_votes": {"label": "入场票数", "min": 1, "max": 5, "step": 1, "integer": True},
+    "exit_votes": {"label": "退出票数", "min": 0, "max": 4, "step": 1, "integer": True},
+}
+
+
+def strategy_parameter_schema(parameters: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{"key": key, **PARAMETER_SPECS[key]} for key in parameters if key in PARAMETER_SPECS]
+
+
+def validate_strategy_parameters(strategy_id: str, parameters: dict[str, Any]) -> dict[str, float | int]:
+    if not isinstance(parameters, dict) or not parameters or len(parameters) > 20:
+        raise ValueError("请选择策略并填写有效参数")
+    normalized: dict[str, float | int] = {}
+    for key, raw_value in parameters.items():
+        spec = PARAMETER_SPECS.get(str(key))
+        if spec is None:
+            raise ValueError(f"不支持的策略参数：{key}")
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"参数 {key} 必须是数字") from exc
+        if not np.isfinite(value) or value < spec["min"] or value > spec["max"]:
+            raise ValueError(f"参数 {key} 必须在 {spec['min']} 到 {spec['max']} 之间")
+        normalized[str(key)] = int(round(value)) if spec.get("integer") else value
+
+    required = {
+        "adaptive_trend": ("fast", "slow"),
+        "channel_breakout": ("entry_window", "exit_window"),
+        "bollinger_reversion": ("window", "width"),
+        "rsi_reversion": ("period", "entry", "exit"),
+        "filtered_momentum": ("lookback", "filter_window"),
+        "supertrend_adx": ("atr_period", "atr_multiplier", "adx_period", "adx_threshold"),
+        "turtle_atr": ("entry_window", "exit_window", "atr_period", "stop_atr", "risk_fraction", "max_exposure"),
+        "bollinger_rsi": ("window", "width", "rsi_period", "rsi_entry", "rsi_exit"),
+        "macd_volume": ("fast", "slow", "signal", "volume_window", "volume_multiplier"),
+        "squeeze_breakout": ("window", "boll_width", "keltner_width", "atr_period", "stop_atr"),
+        "multi_timeframe": ("weekly_fast", "weekly_slow", "daily_ema"),
+        "relative_strength": ("lookback", "top_fraction", "trend_window"),
+        "regime_adaptive": ("adx_period", "adx_threshold", "breakout_window", "breakout_exit", "boll_window", "boll_width", "rsi_period", "rsi_entry", "rsi_exit"),
+        "signal_voting": ("fast", "slow", "breakout_window", "macd_fast", "macd_slow", "macd_signal", "rsi_period", "entry_votes", "exit_votes"),
+    }.get(strategy_id)
+    if required is None:
+        raise ValueError(f"未知策略：{strategy_id}")
+    missing = [key for key in required if key not in normalized]
+    extra = [key for key in normalized if key not in required]
+    if missing or extra:
+        raise ValueError(f"策略参数不完整：缺少 {', '.join(missing) or '无'}；多余 {', '.join(extra) or '无'}")
+    pairs = [("fast", "slow"), ("weekly_fast", "weekly_slow"), ("macd_fast", "macd_slow"), ("entry_window", "exit_window"), ("breakout_window", "breakout_exit"), ("entry", "exit"), ("rsi_entry", "rsi_exit"), ("entry_votes", "exit_votes")]
+    for high_key, low_key in pairs:
+        if high_key in normalized and low_key in normalized:
+            if high_key in {"entry_window", "breakout_window", "entry_votes"}:
+                valid = normalized[high_key] > normalized[low_key]
+            else:
+                valid = normalized[high_key] < normalized[low_key]
+            if not valid:
+                relation = "大于" if high_key in {"entry_window", "breakout_window", "entry_votes"} else "小于"
+                raise ValueError(f"参数 {high_key} 必须{relation} {low_key}")
+    return normalized
+
+
+def evaluate_candidate(
+    data: pd.DataFrame,
+    strategy_id: str,
+    parameters: dict[str, Any],
+    *,
+    costs: Costs = Costs(),
+    periods_per_year: int = 252,
+) -> dict[str, Any]:
+    frame = data.copy().sort_index()
+    for column in ("open", "close", "high", "low"):
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    frame = frame.dropna(subset=["open", "close", "high", "low"])
+    if len(frame) < 220:
+        raise ValueError(f"At least 220 daily bars are required; received {len(frame)}")
+    normalized = validate_strategy_parameters(strategy_id, parameters)
+    split = int(len(frame) * 0.70)
+    ledger, effective_parameters = _builders(frame, normalized, strategy_id, costs)
+    full_metrics = _metrics(ledger, costs, periods_per_year)
+    test_metrics = _metrics(ledger.iloc[split:].copy(), costs, periods_per_year)
+    score = (test_metrics["sharpe"] or 0.0) + 2 * test_metrics["excess_return"] + test_metrics["max_drawdown"]
+    trades = _trades(ledger, costs)
+    return {
+        "id": strategy_id,
+        "parameters": effective_parameters,
+        "parameter_schema": strategy_parameter_schema(effective_parameters),
+        "full": full_metrics,
+        "test": test_metrics,
+        "research_score": float(score),
+        "series": _sample_series(ledger, split),
+        "trades": trades.tail(60).to_dict(orient="records"),
+    }
+
+
 def _definition(
     strategy_id: str,
     name: str,
@@ -724,6 +855,7 @@ def generate_candidates(data: pd.DataFrame, *, costs: Costs = Costs(), periods_p
             {
                 **{key: definition[key] for key in ("id", "name", "family", "description", "risk", "entry_rule", "exit_rule", "position_rule")},
                 "parameters": parameters,
+                "parameter_schema": strategy_parameter_schema(parameters),
                 "full": full_metrics,
                 "test": test_metrics,
                 "research_score": float(score),

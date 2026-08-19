@@ -102,6 +102,14 @@
           <button class="primary-button" id="generateButton"><span>▶</span> 生成候选</button>
         </div>
 
+        <section class="strategy-library" id="strategyLibrary">
+          <div class="strategy-library-head">
+            <div><h2>我的策略版本</h2><span id="strategyVersionMeta">保存在当前浏览器本地</span></div>
+            <div><button class="secondary-button" id="importStrategyButton">导入 JSON</button><input id="strategyImportInput" type="file" accept="application/json,.json" hidden></div>
+          </div>
+          <div class="strategy-version-list" id="strategyVersionList"></div>
+        </section>
+
         <div class="factory-status hidden" id="factoryStatus">
           <div class="status-main"><strong id="stockLabel"></strong><span id="stockSource"></span></div>
           <div class="status-metrics" id="stockMetrics"></div>
@@ -129,6 +137,21 @@
               <p id="detailDescription"></p>
               <div class="parameter-strip" id="detailParameters"></div>
             </div>
+            <section class="parameter-lab" id="parameterLab">
+              <div class="parameter-lab-head">
+                <div><h3>参数实验室</h3><span>修改后重新计算完整样本与样本外结果</span></div>
+                <span class="parameter-state" id="parameterState">候选原始参数</span>
+              </div>
+              <div class="parameter-editor-grid" id="parameterEditor"></div>
+              <div class="parameter-lab-actions">
+                <button class="primary-button" id="recalculateStrategyButton">重新计算</button>
+                <button class="secondary-button" id="resetStrategyParametersButton">恢复候选参数</button>
+                <input id="strategyVersionName" maxlength="60" placeholder="输入版本名称，例如：BTC 低风险版">
+                <button class="secondary-button" id="saveStrategyVersionButton">保存版本</button>
+                <button class="secondary-button" id="exportCurrentStrategyButton">导出 JSON</button>
+              </div>
+              <p class="parameter-warning" id="parameterWarning">参数仅用于本次研究重算；保存版本不会自动下单。</p>
+            </section>
             <div class="metrics-grid" id="detailMetrics"></div>
             <div class="chart-panel">
               <div class="chart-header">

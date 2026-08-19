@@ -14,11 +14,32 @@ const state = {
   okxStrategyPreview: null,
   chart: 'equity',
   loadedViews: new Set(),
+  dataHealth: null,
+  strategyVersions: [],
+  candidateBaselines: new Map(),
 };
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const OKX_STRATEGY_STORAGE_KEY = 'quant-dashboard-okx-demo-strategy-v1';
+const STRATEGY_VERSION_STORAGE_KEY = 'quantpilot-strategy-versions-v1';
+
+function cloneJson(value) { return JSON.parse(JSON.stringify(value)); }
+
+function restoreStrategyVersions() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(STRATEGY_VERSION_STORAGE_KEY) || '[]');
+    state.strategyVersions = Array.isArray(saved) ? saved.filter((item) => item && typeof item === 'object' && item.id && item.strategy_id && item.parameters && item.request).slice(0, 50) : [];
+  } catch (_) {
+    state.strategyVersions = [];
+    window.localStorage.removeItem(STRATEGY_VERSION_STORAGE_KEY);
+  }
+}
+
+function persistStrategyVersions() {
+  try { window.localStorage.setItem(STRATEGY_VERSION_STORAGE_KEY, JSON.stringify(state.strategyVersions.slice(0, 50))); }
+  catch (_) { toast('浏览器无法保存策略版本，请使用导出 JSON', true); }
+}
 
 function restoreOkxStrategyDraft() {
   try {
@@ -139,12 +160,36 @@ function renderAssetOptions() {
   }
 }
 
+function dataStateLabel(status) {
+  return ({ healthy: '可用', live: '实时', cached: '缓存快照', delayed: '延迟日线', local: '本地数据', unavailable: '不可用', unchecked: '未检测' }[status] || status || '未知');
+}
+
+function dataStateBadge(status, label = '') {
+  return `<span class="data-state-badge ${escapeHtml(status || 'unchecked')}">${escapeHtml(label || dataStateLabel(status))}</span>`;
+}
+
+function renderStrategyVersions() {
+  const host = $('#strategyVersionList');
+  if (!host) return;
+  $('#strategyVersionMeta').textContent = `${state.strategyVersions.length} 个版本 · 保存在当前浏览器本地`;
+  host.innerHTML = state.strategyVersions.map((version) => `<article class="strategy-version-card" data-version-id="${escapeHtml(version.id)}">
+    <strong>${escapeHtml(version.name)}</strong><span>${escapeHtml(version.label || version.symbol)} · ${escapeHtml(version.strategy_name || version.strategy_id)}</span>
+    <small>${escapeHtml(String(version.created_at || '').replace('T', ' ').slice(0, 16))} · ${Object.keys(version.parameters || {}).length} 个参数</small>
+    <div class="strategy-version-actions"><button data-version-load="${escapeHtml(version.id)}">加载</button><button data-version-copy="${escapeHtml(version.id)}">复制</button><button data-version-export="${escapeHtml(version.id)}">导出</button><button data-version-delete="${escapeHtml(version.id)}">删除</button></div>
+  </article>`).join('') || '<div class="strategy-library-empty">暂无保存版本。生成策略、调整参数后可在参数实验室保存。</div>';
+  host.querySelectorAll('[data-version-load]').forEach((button) => button.onclick = () => loadStrategyVersion(button.dataset.versionLoad));
+  host.querySelectorAll('[data-version-copy]').forEach((button) => button.onclick = () => copyStrategyVersion(button.dataset.versionCopy));
+  host.querySelectorAll('[data-version-export]').forEach((button) => button.onclick = () => exportStrategyVersion(button.dataset.versionExport));
+  host.querySelectorAll('[data-version-delete]').forEach((button) => button.onclick = () => deleteStrategyVersion(button.dataset.versionDelete));
+}
+
 function renderFactoryStatus(result) {
   const latest = result.latest || {};
   $('#factoryStatus').classList.remove('hidden');
   $('#stockLabel').textContent = `${result.symbol || ''} · ${result.label || ''}`;
   const sourceNames = Object.fromEntries((state.universe?.sources || []).map((source) => [source.id, source.name]));
-  $('#stockSource').textContent = `${sourceNames[result.source] || '行情数据'} · ${result.bars} 根已收盘日线`;
+  const dataStatus = result.data_status || {};
+  $('#stockSource').innerHTML = `${escapeHtml(sourceNames[result.source] || '行情数据')} · ${escapeHtml(result.bars)} 根已收盘日线 · ${dataStateBadge(dataStatus.status, dataStatus.mode)}`;
   const relative = result.relative_strength_context || {};
   $('#stockMetrics').innerHTML = [
     ['最新收盘', fmtNum(latest.close)],
@@ -152,6 +197,7 @@ function renderFactoryStatus(result) {
     ['波动分档', result.profile?.volatility_tier || '—'],
     ['样本外起点', result.split?.test_start || '—'],
     ['板块比较', relative.available ? `${relative.group_name} · ${relative.peer_count}只` : '未启用'],
+    ['数据交易日', dataStatus.trade_date || latest.date || '—'],
   ].map(([label, value]) => `<div><span>${label}</span><b class="${label === '当日变化' ? metricClass(latest.change) : ''}">${escapeHtml(value)}</b></div>`).join('');
 }
 
@@ -196,6 +242,7 @@ function renderCandidateDetail(item) {
     ['仓位', item.position_rule],
   ].map(([label, value]) => `<div><b>${label}</b><span>${escapeHtml(value || '—')}</span></div>`).join('');
   $('#detailParameters').innerHTML = Object.entries(item.parameters || {}).map(([key, value]) => `<span>${escapeHtml(key)} <b>${escapeHtml(fmtNum(value, 2))}</b></span>`).join('');
+  renderParameterEditor(item);
   const test = item.test || {};
   const full = item.full || {};
   const cells = [
@@ -215,6 +262,151 @@ function renderCandidateDetail(item) {
   okxButton.disabled = !okxEligible;
   okxButton.title = okxEligible ? '将当前策略带到 OKX Demo 交易页' : '仅虚拟货币候选可部署到 OKX Demo';
   drawStrategyChart(item, state.chart);
+}
+
+function renderParameterEditor(item) {
+  const schema = item.parameter_schema || Object.keys(item.parameters || {}).map((key) => ({ key, label: key, min: -1000000, max: 1000000, step: 0.01 }));
+  $('#parameterEditor').innerHTML = schema.map((field) => `<div class="parameter-field"><label for="parameter-${escapeHtml(field.key)}"><span>${escapeHtml(field.label || field.key)}</span><code>${escapeHtml(field.key)}</code></label><input id="parameter-${escapeHtml(field.key)}" data-strategy-parameter="${escapeHtml(field.key)}" type="number" value="${escapeHtml(item.parameters?.[field.key])}" min="${escapeHtml(field.min)}" max="${escapeHtml(field.max)}" step="${escapeHtml(field.step)}"><small>${escapeHtml(field.min)} – ${escapeHtml(field.max)}</small></div>`).join('');
+  $('#parameterState').textContent = item.customized ? '已使用自定义参数重算' : '候选原始参数';
+  $('#parameterWarning').textContent = item.customized ? '当前结果已按自定义参数重新计算；保存版本不会自动下单。' : '参数仅用于本次研究重算；保存版本不会自动下单。';
+  $$('[data-strategy-parameter]').forEach((input) => input.addEventListener('input', () => { $('#parameterState').textContent = '参数已修改，等待重新计算'; }));
+}
+
+function currentCandidate() {
+  return state.candidates?.candidates?.find((item) => item.id === state.selectedCandidate);
+}
+
+function readStrategyParameters() {
+  const values = {};
+  for (const input of $$('[data-strategy-parameter]')) {
+    if (!input.reportValidity()) throw new Error(`${input.dataset.strategyParameter} 参数超出允许范围`);
+    values[input.dataset.strategyParameter] = Number(input.value);
+  }
+  return values;
+}
+
+async function recalculateStrategy(parameters = null, notify = true) {
+  const candidate = currentCandidate();
+  if (!candidate || !state.candidates?.request) { toast('请先生成并选择候选策略', true); return false; }
+  const button = $('#recalculateStrategyButton');
+  button.disabled = true; button.textContent = '正在重新计算…';
+  try {
+    const result = await api('/api/strategy-recalculate', { method: 'POST', body: JSON.stringify({ ...state.candidates.request, strategy_id: candidate.id, parameters: parameters || readStrategyParameters() }) });
+    const merged = { ...candidate, ...result, rank: candidate.rank, customized: true };
+    const index = state.candidates.candidates.findIndex((item) => item.id === candidate.id);
+    state.candidates.candidates[index] = merged;
+    state.candidates.data_status = result.data_status || state.candidates.data_status;
+    renderFactoryStatus(state.candidates);
+    renderCandidates(state.candidates);
+    if (notify) toast('已按自定义参数重新计算策略');
+    return true;
+  } catch (error) { toast(error.message, true); return false; }
+  finally { button.disabled = false; button.textContent = '重新计算'; }
+}
+
+function resetStrategyParameters() {
+  const baseline = state.candidateBaselines.get(state.selectedCandidate);
+  if (!baseline || !state.candidates) return;
+  const index = state.candidates.candidates.findIndex((item) => item.id === state.selectedCandidate);
+  state.candidates.candidates[index] = cloneJson(baseline);
+  renderCandidates(state.candidates);
+  toast('已恢复候选原始参数和结果');
+}
+
+function versionIdentifier() {
+  return window.crypto?.randomUUID?.() || `strategy-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function strategyVersionPayload(candidate, name) {
+  return {
+    schema_version: 1,
+    id: versionIdentifier(),
+    name,
+    created_at: new Date().toISOString(),
+    symbol: state.candidates.symbol,
+    label: state.candidates.label,
+    source: state.candidates.source,
+    group: state.candidates.group,
+    strategy_id: candidate.id,
+    strategy_name: candidate.name,
+    strategy_family: candidate.family,
+    parameters: cloneJson(candidate.parameters),
+    parameter_schema: cloneJson(candidate.parameter_schema || []),
+    metrics: { test: cloneJson(candidate.test || {}), full: cloneJson(candidate.full || {}) },
+    request: cloneJson(state.candidates.request),
+  };
+}
+
+function saveStrategyVersion() {
+  const candidate = currentCandidate();
+  if (!candidate) { toast('请先选择候选策略', true); return; }
+  const input = $('#strategyVersionName');
+  const name = input.value.trim() || `${state.candidates.label} · ${candidate.name}`;
+  state.strategyVersions.unshift(strategyVersionPayload(candidate, name));
+  state.strategyVersions = state.strategyVersions.slice(0, 50);
+  persistStrategyVersions(); renderStrategyVersions(); input.value = '';
+  toast('策略版本已保存在当前浏览器');
+}
+
+function downloadJson(payload, filename) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob), anchor = document.createElement('a');
+  anchor.href = url; anchor.download = filename.replace(/[^\w\u4e00-\u9fff.-]+/g, '_'); anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportCurrentStrategy() {
+  const candidate = currentCandidate();
+  if (!candidate) { toast('请先选择候选策略', true); return; }
+  const version = strategyVersionPayload(candidate, `${state.candidates.label} · ${candidate.name}`);
+  downloadJson(version, `quantpilot-${state.candidates.symbol}-${candidate.id}.json`);
+}
+
+function exportStrategyVersion(id) {
+  const version = state.strategyVersions.find((item) => item.id === id);
+  if (version) downloadJson(version, `quantpilot-${version.symbol}-${version.strategy_id}.json`);
+}
+
+function copyStrategyVersion(id) {
+  const version = state.strategyVersions.find((item) => item.id === id);
+  if (!version) return;
+  state.strategyVersions.unshift({ ...cloneJson(version), id: versionIdentifier(), name: `${version.name} 副本`, created_at: new Date().toISOString() });
+  persistStrategyVersions(); renderStrategyVersions();
+}
+
+function deleteStrategyVersion(id) {
+  const version = state.strategyVersions.find((item) => item.id === id);
+  if (!version || !window.confirm(`确定删除策略版本“${version.name}”吗？`)) return;
+  state.strategyVersions = state.strategyVersions.filter((item) => item.id !== id);
+  persistStrategyVersions(); renderStrategyVersions();
+}
+
+async function loadStrategyVersion(id) {
+  const version = state.strategyVersions.find((item) => item.id === id);
+  if (!version) return;
+  toast('正在加载策略版本并重新获取研究数据…');
+  try {
+    const result = await api('/api/strategy-candidates', { method: 'POST', body: JSON.stringify(version.request) });
+    state.candidates = result; state.selectedCandidate = version.strategy_id;
+    state.candidateBaselines = new Map(result.candidates.map((item) => [item.id, cloneJson(item)]));
+    if (!result.candidates.some((item) => item.id === version.strategy_id)) throw new Error('当前数据不支持这个策略版本');
+    renderFactoryStatus(result); $('#factoryEmpty').classList.add('hidden'); $('#factoryResults').classList.remove('hidden'); renderCandidates(result);
+    const ok = await recalculateStrategy(version.parameters, false);
+    if (ok) { $('#strategyVersionName').value = version.name; toast('策略版本已加载并重新计算'); }
+  } catch (error) { toast(error.message, true); }
+}
+
+async function importStrategyFile(file) {
+  if (!file || file.size > 1024 * 1024) { toast('请选择小于 1MB 的策略 JSON 文件', true); return; }
+  try {
+    const parsed = JSON.parse(await file.text());
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    const valid = items.filter((item) => item && item.strategy_id && item.parameters && item.request).map((item) => ({ ...item, id: versionIdentifier(), imported_at: new Date().toISOString() }));
+    if (!valid.length) throw new Error('文件中没有有效的 QuantPilot 策略版本');
+    state.strategyVersions = [...valid, ...state.strategyVersions].slice(0, 50);
+    persistStrategyVersions(); renderStrategyVersions(); toast(`已导入 ${valid.length} 个策略版本`);
+  } catch (error) { toast(error.message, true); }
+  finally { $('#strategyImportInput').value = ''; }
 }
 
 function drawStrategyChart(item, mode = 'equity') {
@@ -250,6 +442,7 @@ async function generateCandidates() {
     const result = await api('/api/strategy-candidates', { method: 'POST', body: JSON.stringify(payload) });
     state.candidates = result;
     state.selectedCandidate = null;
+    state.candidateBaselines = new Map(result.candidates.map((item) => [item.id, cloneJson(item)]));
     renderFactoryStatus(result);
     $('#factoryEmpty').classList.add('hidden');
     $('#factoryResults').classList.remove('hidden');
@@ -625,7 +818,7 @@ async function renderIndustry(force = false) {
     ]);
     window.clearTimeout(timeoutId);
     const industries = result.industries || [];
-    host.innerHTML = `<section class="terminal-panel"><div class="section-heading"><div><h2>行业热度</h2><span>${escapeHtml(result.source_scope || '')}</span></div><button class="secondary-button" id="refreshIndustry">↻ 刷新</button></div>${result.warning ? `<div class="terminal-warning">${escapeHtml(result.warning)}</div>` : ''}${industries.length ? `<div class="industry-grid">${industries.map((industry) => `<article class="content-panel"><div><h3>${escapeHtml(industry.name)}</h3><strong class="${metricClass(industry.change)}">${fmtPct(industry.change)}</strong></div><p>${industry.member_count} 个观察标的 · 成交额 ${fmtNum(industry.amount / 100000000, 2)} 亿</p><div>${(industry.members || []).map((member) => `<div class="industry-member"><span>${escapeHtml(member.name)} <small>${escapeHtml(member.symbol)}</small></span><b class="${metricClass(member.change)}">${fmtPct(member.change)}</b></div>`).join('')}</div></article>`).join('')}</div>` : '<div class="terminal-empty">当前观察池没有可用行业行情。</div>'}</section>`;
+    host.innerHTML = `<section class="terminal-panel"><div class="section-heading"><div><h2>行业热度</h2><span>${escapeHtml(result.source || '')} · ${escapeHtml(result.as_of || '')} · ${escapeHtml(result.source_scope || '')}</span>${dataStateBadge(result.stale ? 'cached' : 'live', result.stale ? '缓存快照' : '项目观察池')}</div><button class="secondary-button" id="refreshIndustry">↻ 刷新</button></div>${result.warning ? `<div class="terminal-warning">${escapeHtml(result.warning)}</div>` : ''}${industries.length ? `<div class="industry-grid">${industries.map((industry) => `<article class="content-panel"><div><h3>${escapeHtml(industry.name)}</h3><strong class="${metricClass(industry.change)}">${fmtPct(industry.change)}</strong></div><p>${industry.member_count} 个观察标的 · 成交额 ${fmtNum(industry.amount / 100000000, 2)} 亿</p><div>${(industry.members || []).map((member) => `<div class="industry-member"><span>${escapeHtml(member.name)} <small>${escapeHtml(member.symbol)}</small></span><b class="${metricClass(member.change)}">${fmtPct(member.change)}</b></div>`).join('')}</div></article>`).join('')}</div>` : '<div class="terminal-empty">当前观察池没有可用行业行情。</div>'}</section>`;
     $('#refreshIndustry').addEventListener('click', () => renderIndustry(true));
     return true;
   } catch (error) {
@@ -666,9 +859,15 @@ async function loadThemeCandidates(themeId) {
   } catch (error) { host.innerHTML = `<div class="page-loading">${escapeHtml(error.message)}</div>`; }
 }
 
-function renderData() {
-  const items = state.datasets;
-  $('#dataContent').innerHTML = `<div class="table-page"><div class="table-page-header"><h2>本地数据资产</h2><span>${items.length} 个快照 · 原始数据保持不变</span></div><div style="overflow:auto"><table><thead><tr><th>标的</th><th>文件</th><th>周期</th><th>来源</th><th>区间</th><th>条数</th><th>大小</th><th>复权</th></tr></thead><tbody>${items.map((item) => `<tr><td><strong>${escapeHtml(item.symbol)}</strong></td><td class="mono">${escapeHtml(item.name)}</td><td>${escapeHtml(item.interval)}</td><td>${escapeHtml(item.source)}</td><td class="mono">${escapeHtml(item.first_date || '—')} → ${escapeHtml(item.last_date || '—')}</td><td class="mono">${escapeHtml(item.rows)}</td><td class="mono">${item.size_kb} KB</td><td>${escapeHtml(item.adjust)}</td></tr>`).join('')}</tbody></table></div></div>`;
+async function renderData(force = false) {
+  const host = $('#dataContent'), items = state.datasets;
+  if (!state.dataHealth || force) host.innerHTML = '<div class="page-loading">正在检查数据源状态…</div>';
+  try {
+    state.dataHealth = await api(`/api/data-health${force ? '?refresh=1' : ''}`);
+    const health = state.dataHealth, summary = health.summary || {};
+    host.innerHTML = `<section class="data-health"><div class="data-health-summary"><div><h2>数据源健康中心</h2><p>检测时间 ${escapeHtml(String(health.checked_at || '').replace('T', ' '))} · 可用 ${summary.healthy || 0} · 缓存 ${summary.cached || 0} · 不可用 ${summary.unavailable || 0} · 未检测 ${summary.unchecked || 0}</p></div><button class="primary-button" id="refreshDataHealth">检测全部数据源</button></div><div class="data-health-grid">${health.sources.map((source) => `<article class="data-health-card"><div class="data-health-card-head"><h3>${escapeHtml(source.name)}</h3>${dataStateBadge(source.status)}</div><dl><div><dt>数据模式</dt><dd>${escapeHtml(source.mode || '—')}</dd></div><div><dt>覆盖范围</dt><dd>${escapeHtml(source.scope || '—')}</dd></div><div><dt>交易日期</dt><dd>${escapeHtml(source.trade_date || '—')}</dd></div><div><dt>更新时间</dt><dd>${escapeHtml(String(source.as_of || '—').replace('T', ' ').slice(0, 19))}</dd></div><div><dt>记录数</dt><dd>${escapeHtml(source.records ?? '—')}</dd></div></dl><p class="data-health-message">${escapeHtml(source.message || '')}</p></article>`).join('')}</div></section><div class="table-page"><div class="table-page-header"><h2>本地数据资产</h2><span>${items.length} 个快照 · 原始数据保持不变</span></div><div style="overflow:auto"><table><thead><tr><th>标的</th><th>文件</th><th>周期</th><th>来源</th><th>区间</th><th>条数</th><th>大小</th><th>复权</th></tr></thead><tbody>${items.map((item) => `<tr><td><strong>${escapeHtml(item.symbol)}</strong></td><td class="mono">${escapeHtml(item.name)}</td><td>${escapeHtml(item.interval)}</td><td>${escapeHtml(item.source)}</td><td class="mono">${escapeHtml(item.first_date || '—')} → ${escapeHtml(item.last_date || '—')}</td><td class="mono">${escapeHtml(item.rows)}</td><td class="mono">${item.size_kb} KB</td><td>${escapeHtml(item.adjust)}</td></tr>`).join('')}</tbody></table></div></div>`;
+    $('#refreshDataHealth').addEventListener('click', () => renderData(true));
+  } catch (error) { host.innerHTML = `<div class="terminal-error">数据源状态检查失败：${escapeHtml(error.message)}<button class="secondary-button" id="retryDataHealth">重新检测</button></div>`; $('#retryDataHealth').onclick = () => renderData(true); }
 }
 
 async function runEnvironmentCheck() {
@@ -742,6 +941,12 @@ function bindEvents() {
   $('#generateButton').addEventListener('click', generateCandidates);
   $('#paperDraftButton').addEventListener('click', stagePaperStrategy);
   $('#okxDraftButton').addEventListener('click', stageOkxDemoStrategy);
+  $('#recalculateStrategyButton').addEventListener('click', () => recalculateStrategy());
+  $('#resetStrategyParametersButton').addEventListener('click', resetStrategyParameters);
+  $('#saveStrategyVersionButton').addEventListener('click', saveStrategyVersion);
+  $('#exportCurrentStrategyButton').addEventListener('click', exportCurrentStrategy);
+  $('#importStrategyButton').addEventListener('click', () => $('#strategyImportInput').click());
+  $('#strategyImportInput').addEventListener('change', (event) => importStrategyFile(event.target.files?.[0]));
   $('#refreshButton').addEventListener('click', () => window.location.reload());
   $('#menuButton').addEventListener('click', () => {
     const sidebar = $('#sidebar');
@@ -759,6 +964,7 @@ function bindEvents() {
 
 async function init() {
   restoreOkxStrategyDraft();
+  restoreStrategyVersions(); renderStrategyVersions();
   updateClock(); window.setInterval(updateClock, 30000); bindEvents();
   try {
     [state.overview, state.universe, state.paper] = await Promise.all([api('/api/overview'), api('/api/asset-universe'), api('/api/paper/account')]);

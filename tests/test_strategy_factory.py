@@ -5,7 +5,14 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from dashboard.strategy_factory import Costs, _ledger, build_candidate_ledger, generate_candidates
+from dashboard.strategy_factory import (
+    Costs,
+    _ledger,
+    build_candidate_ledger,
+    evaluate_candidate,
+    generate_candidates,
+    validate_strategy_parameters,
+)
 
 
 def sample_stock(rows: int = 320) -> pd.DataFrame:
@@ -77,6 +84,21 @@ class StrategyFactoryTests(unittest.TestCase):
         self.assertEqual(len(result["candidates"]), 14)
         self.assertTrue(requested.issubset(ids))
         self.assertEqual(result["split"]["train_bars"], 224)
+        self.assertTrue(all(item["parameter_schema"] for item in result["candidates"]))
+
+    def test_custom_parameters_recalculate_full_and_holdout_results(self) -> None:
+        result = evaluate_candidate(sample_stock(), "adaptive_trend", {"fast": 12, "slow": 55})
+        self.assertEqual(result["parameters"], {"fast": 12, "slow": 55})
+        self.assertIn("total_return", result["full"])
+        self.assertIn("total_return", result["test"])
+        self.assertTrue(result["series"])
+        self.assertIsInstance(result["trades"], list)
+
+    def test_parameter_validation_rejects_range_and_relationship_errors(self) -> None:
+        with self.assertRaises(ValueError):
+            validate_strategy_parameters("adaptive_trend", {"fast": 0, "slow": 50})
+        with self.assertRaises(ValueError):
+            validate_strategy_parameters("adaptive_trend", {"fast": 60, "slow": 50})
 
     def test_local_data_skips_relative_strength_with_reason(self) -> None:
         result = generate_candidates(sample_stock())

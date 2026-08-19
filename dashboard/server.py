@@ -44,7 +44,12 @@ from dashboard.broker_adapters import (  # noqa: E402
     sync_broker,
 )
 from dashboard.market_terminal import (  # noqa: E402
+    INDICES_FILE,
+    LIMIT_POOL_FILE,
+    SNAPSHOT_FILE,
     concept_analysis,
+    fetch_limit_pool,
+    fetch_market_snapshot,
     get_watchlist,
     index_dashboard,
     industry_analysis,
@@ -57,7 +62,7 @@ from dashboard.market_terminal import (  # noqa: E402
     update_monitor,
     update_watchlist,
 )
-from dashboard.strategy_factory import Costs, build_candidate_ledger, generate_candidates  # noqa: E402
+from dashboard.strategy_factory import Costs, build_candidate_ledger, evaluate_candidate, generate_candidates  # noqa: E402
 
 
 ASSET_UNIVERSE = {
@@ -265,6 +270,109 @@ def overview() -> dict[str, Any]:
     return {
         "updated_at": datetime.fromtimestamp(latest).isoformat(timespec="minutes"),
         "datasets": datasets,
+    }
+
+
+def _cached_health(path: Path, source_id: str, name: str, mode: str, scope: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"id": source_id, "name": name, "status": "unchecked", "mode": mode, "scope": scope, "message": "尚无本地健康快照，点击检测数据源"}
+    timestamp = payload.get("retrieved_at") or payload.get("as_of")
+    return {
+        "id": source_id,
+        "name": name,
+        "status": "cached" if payload.get("stale") else "healthy",
+        "mode": mode,
+        "scope": scope,
+        "as_of": timestamp,
+        "trade_date": payload.get("trade_date"),
+        "records": len(payload.get("items") or payload.get("indices") or []),
+        "message": payload.get("warning") or "最近一次请求可用",
+    }
+
+
+def data_health(*, refresh: bool = False) -> dict[str, Any]:
+    datasets = dataset_catalog()
+    sources = [
+        _cached_health(SNAPSHOT_FILE, "a_share_quotes", "A 股公开行情", "市场快照", "项目观察池；不代表全市场"),
+        _cached_health(INDICES_FILE, "indices", "主要指数日线", "公开日线", "上证、深证、创业板、科创 50"),
+        _cached_health(LIMIT_POOL_FILE, "limit_pool", "全市场涨停池", "交易日快照", "沪深京全市场涨停池"),
+    ]
+    crypto_dates = [item.get("last_date") for item in datasets if "usdt" in str(item.get("symbol", "")).lower() and item.get("last_date")]
+    sources.append({
+        "id": "gate_crypto",
+        "name": "Gate.io 虚拟货币日线",
+        "status": "unchecked",
+        "mode": "公开日线",
+        "scope": "用户选择的 USDT 现货",
+        "trade_date": max(crypto_dates, default=None),
+        "message": "网络状态尚未检测；本地快照可继续使用" if crypto_dates else "网络状态尚未检测",
+    })
+    sources.append({
+        "id": "local_files",
+        "name": "本地 CSV 快照",
+        "status": "healthy" if datasets else "unavailable",
+        "mode": "本地文件",
+        "scope": "由用户选择具体文件",
+        "as_of": overview()["updated_at"],
+        "records": len(datasets),
+        "message": f"发现 {len(datasets)} 个本地数据文件" if datasets else "未发现本地数据文件",
+    })
+    if refresh:
+        started = time.perf_counter()
+
+        def probe_a_share() -> dict[str, Any]:
+            payload = fetch_market_snapshot(force=True)
+            return {"status": "cached" if payload.get("stale") else "healthy", "as_of": payload.get("retrieved_at"), "records": len(payload.get("items") or []), "message": payload.get("warning") or payload.get("source")}
+
+        def probe_indices() -> dict[str, Any]:
+            payload = index_dashboard(force=True)
+            usable = [item for item in payload.get("indices", []) if not item.get("error")]
+            status = "cached" if payload.get("stale") else "healthy" if usable else "unavailable"
+            return {"status": status, "as_of": payload.get("as_of"), "records": len(usable), "message": payload.get("warning") or payload.get("source")}
+
+        def probe_limit_pool() -> dict[str, Any]:
+            payload = fetch_limit_pool(force=True)
+            return {"status": "cached" if payload.get("stale") else "healthy", "as_of": payload.get("retrieved_at"), "trade_date": payload.get("trade_date"), "records": len(payload.get("items") or []), "message": payload.get("warning") or payload.get("source")}
+
+        def probe_gate() -> dict[str, Any]:
+            frame, metadata = fetch_gate_candles("1d", 5, symbol="BTC")
+            latest = str(frame.index.max().date()) if not frame.empty else None
+            return {"status": "healthy" if not frame.empty else "unavailable", "as_of": datetime.now().isoformat(timespec="seconds"), "trade_date": latest, "records": len(frame), "message": str(metadata.get("source") or "Gate.io public spot candles")}
+
+        probes = {"a_share_quotes": probe_a_share, "indices": probe_indices, "limit_pool": probe_limit_pool, "gate_crypto": probe_gate}
+        by_id = {item["id"]: item for item in sources}
+
+        def timed_probe(function: Any) -> tuple[dict[str, Any], int]:
+            source_started = time.perf_counter()
+            return function(), round((time.perf_counter() - source_started) * 1000)
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {executor.submit(timed_probe, function): source_id for source_id, function in probes.items()}
+            for future in as_completed(futures):
+                source_id = futures[future]
+                try:
+                    probe_result, latency_ms = future.result()
+                    by_id[source_id].update(probe_result)
+                    by_id[source_id]["latency_ms"] = latency_ms
+                except Exception as exc:
+                    by_id[source_id].update({"status": "unavailable", "message": str(exc)})
+                    by_id[source_id]["latency_ms"] = None
+        duration_ms = round((time.perf_counter() - started) * 1000)
+    else:
+        duration_ms = 0
+    return {
+        "checked_at": datetime.now().isoformat(timespec="seconds"),
+        "refreshed": refresh,
+        "duration_ms": duration_ms,
+        "summary": {
+            "healthy": sum(item["status"] == "healthy" for item in sources),
+            "cached": sum(item["status"] == "cached" for item in sources),
+            "unavailable": sum(item["status"] == "unavailable" for item in sources),
+            "unchecked": sum(item["status"] == "unchecked" for item in sources),
+        },
+        "sources": sources,
     }
 
 
@@ -492,6 +600,59 @@ def strategy_candidates(payload: dict[str, Any]) -> dict[str, Any]:
         "bars": len(data),
         "periods_per_year": periods_per_year,
         "relative_strength_context": relative_context,
+        "request": {
+            "source": source,
+            "group": payload.get("group") or payload.get("group_id"),
+            "symbol": payload.get("symbol"),
+            "custom_label": payload.get("custom_label") or payload.get("label"),
+            "dataset": payload.get("dataset"),
+            "buy_cost": buy_cost,
+            "sell_cost": sell_cost,
+        },
+        "data_status": {
+            "status": "local" if source.startswith("local") else "delayed",
+            "mode": "本地历史快照" if source.startswith("local") else "公开收盘日线",
+            "source": source,
+            "trade_date": result.get("latest", {}).get("date"),
+            "bars": len(data),
+            "message": "本地文件数据" if source.startswith("local") else "公开行情接口通常为收盘后日线，不代表实时行情",
+        },
+    })
+    return result
+
+
+def strategy_recalculate(payload: dict[str, Any]) -> dict[str, Any]:
+    strategy_id = str(payload.get("strategy_id") or "").strip()
+    if not strategy_id:
+        raise ValueError("请选择要重算的策略")
+    buy_cost = float(payload.get("buy_cost", 0.0005))
+    sell_cost = float(payload.get("sell_cost", 0.0010))
+    if not (0 <= buy_cost <= 0.05 and 0 <= sell_cost <= 0.05):
+        raise ValueError("One-way costs must be between 0 and 5%")
+    data, symbol, label, periods_per_year, relative_context = prepare_strategy_data(payload)
+    result = evaluate_candidate(
+        data,
+        strategy_id,
+        payload.get("parameters") or {},
+        costs=Costs(buy=buy_cost, sell=sell_cost),
+        periods_per_year=periods_per_year,
+    )
+    result.update({
+        "symbol": symbol,
+        "label": label,
+        "source": str(payload.get("source", "tencent")),
+        "group": payload.get("group") or payload.get("group_id"),
+        "bars": len(data),
+        "periods_per_year": periods_per_year,
+        "relative_strength_context": relative_context,
+        "data_status": {
+            "status": "local" if str(payload.get("source", "tencent")).startswith("local") else "delayed",
+            "mode": "本地历史快照" if str(payload.get("source", "tencent")).startswith("local") else "公开收盘日线",
+            "source": str(payload.get("source", "tencent")),
+            "trade_date": str(pd.Timestamp(data.index.max()).date()),
+            "bars": len(data),
+            "message": "参数重算结果，不代表实时行情",
+        },
     })
     return result
 
@@ -588,6 +749,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/overview":
                 self.send_json(overview())
                 return
+            if parsed.path == "/api/data-health":
+                query = parse_qs(parsed.query)
+                self.send_json(data_health(refresh=query.get("refresh", ["0"])[0] == "1"))
+                return
             if parsed.path == "/api/theme":
                 self.send_json(theme_screen())
                 return
@@ -661,6 +826,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length) or b"{}")
             if parsed.path == "/api/strategy-candidates":
                 self.send_json(strategy_candidates(payload))
+                return
+            if parsed.path == "/api/strategy-recalculate":
+                self.send_json(strategy_recalculate(payload))
                 return
             if parsed.path == "/api/terminal/strategy-scan":
                 self.send_json(strategy_scan(ASSET_UNIVERSE, payload))

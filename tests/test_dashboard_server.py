@@ -6,7 +6,14 @@ from unittest.mock import patch
 
 import numpy as np
 
-from dashboard.server import asset_display_label, okx_strategy_preview
+from dashboard.server import (
+    asset_display_label,
+    data_health,
+    okx_strategy_preview,
+    strategy_candidates,
+    strategy_recalculate,
+)
+from tests.test_strategy_factory import sample_stock
 
 
 class DashboardServerTests(unittest.TestCase):
@@ -62,6 +69,31 @@ class DashboardServerTests(unittest.TestCase):
         self.assertTrue(preview["demo"])
         self.assertIn(preview["action"], {"buy", "sell", "hold"})
         self.assertIn("target_fraction", preview)
+
+    def test_data_health_exposes_status_for_each_source(self) -> None:
+        result = data_health(refresh=False)
+        self.assertEqual({item["id"] for item in result["sources"]}, {"a_share_quotes", "indices", "limit_pool", "gate_crypto", "local_files"})
+        self.assertEqual(sum(result["summary"].values()), len(result["sources"]))
+
+    def test_strategy_candidates_preserves_recalculation_request_and_data_status(self) -> None:
+        prepared = (sample_stock(), "sz000001", "平安银行", 252, None)
+        payload = {"source": "tencent", "group": "large_cap", "symbol": "sz000001", "buy_cost": 0.0005, "sell_cost": 0.001}
+        with patch("dashboard.server.prepare_strategy_data", return_value=prepared):
+            result = strategy_candidates(payload)
+        self.assertEqual(result["request"]["symbol"], "sz000001")
+        self.assertEqual(result["data_status"]["status"], "delayed")
+        self.assertEqual(result["data_status"]["trade_date"], str(sample_stock().index.max().date()))
+
+    def test_strategy_recalculation_returns_metrics_and_actual_trade_date(self) -> None:
+        data = sample_stock()
+        prepared = (data, "sz000001", "平安银行", 252, None)
+        payload = {"source": "tencent", "group": "large_cap", "symbol": "sz000001", "strategy_id": "adaptive_trend", "parameters": {"fast": 12, "slow": 55}}
+        with patch("dashboard.server.prepare_strategy_data", return_value=prepared):
+            result = strategy_recalculate(payload)
+        self.assertIn("full", result)
+        self.assertIn("test", result)
+        self.assertTrue(result["series"])
+        self.assertEqual(result["data_status"]["trade_date"], str(data.index.max().date()))
 
 
 if __name__ == "__main__":

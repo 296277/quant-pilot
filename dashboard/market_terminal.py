@@ -813,6 +813,8 @@ def concept_analysis(universe: dict[str, Any], *, force: bool = False) -> dict[s
     return {
         "as_of": snapshot["retrieved_at"],
         "source": f"{snapshot['source']} + 本项目配置板块",
+        "stale": snapshot.get("stale", False),
+        "warning": snapshot.get("warning"),
         "scope_note": f"覆盖本项目 {len(ranked)} 个配置板块，不宣称全市场概念库",
         "groups": ranked,
         "leaders": ranked[:10],
