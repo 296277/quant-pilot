@@ -15,7 +15,7 @@ import threading
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATE_ROOT = PROJECT_ROOT / "data" / "processed" / "terminal"
 SNAPSHOT_FILE = STATE_ROOT / "market_snapshot.json"
 INDICES_FILE = STATE_ROOT / "indices_snapshot.json"
+LIMIT_POOL_FILE = STATE_ROOT / "limit_pool_snapshot.json"
 WATCHLIST_FILE = STATE_ROOT / "watchlist.json"
 MONITOR_RULES_FILE = STATE_ROOT / "monitor_rules.json"
 MONITOR_EVENTS_FILE = STATE_ROOT / "monitor_events.json"
@@ -39,6 +40,7 @@ SNAPSHOT_PAGE_WORKERS = 2
 SNAPSHOT_PAGE_ATTEMPTS = 4
 _SNAPSHOT_REFRESH_LOCK = threading.Lock()
 _INDICES_REFRESH_LOCK = threading.Lock()
+_LIMIT_POOL_REFRESH_LOCK = threading.Lock()
 INDICES_SPEC = [("sh000001", "上证指数"), ("sz399001", "深证成指"), ("sz399006", "创业板指"), ("sh000688", "科创50")]
 TENCENT_MARKET_SYMBOLS = (
     "sh601398", "sh601318", "sh600036", "sh600900", "sh601088",
@@ -682,33 +684,126 @@ def _limit_threshold(item: dict[str, Any]) -> float:
     return 0.095
 
 
+def _limit_time(value: Any) -> str:
+    digits = str(int(_number(value))).zfill(6)
+    return f"{digits[:2]}:{digits[2:4]}:{digits[4:]}" if digits != "000000" else "—"
+
+
+def _parse_limit_pool(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data") or {}
+    pool = list(data.get("pool") or [])
+    items = []
+    for raw in pool:
+        code = str(raw.get("c") or "")
+        if len(code) != 6:
+            continue
+        streak = max(1, int(_number(raw.get("lbc"), 1)))
+        statistics = raw.get("zttj") or {}
+        items.append({
+            "symbol": _stock_symbol(code),
+            "code": code,
+            "name": str(raw.get("n") or code),
+            "price": _number(raw.get("p")) / 1000,
+            "change": _number(raw.get("zdp")) / 100,
+            "amount": _number(raw.get("amount")),
+            "turnover": _number(raw.get("hs")) / 100,
+            "float_cap": _number(raw.get("ltsz")),
+            "market_cap": _number(raw.get("tshare")),
+            "streak": streak,
+            "first_limit_time": _limit_time(raw.get("fbt")),
+            "last_limit_time": _limit_time(raw.get("lbt")),
+            "break_count": int(_number(raw.get("zbc"))),
+            "sealed_amount": _number(raw.get("fund")),
+            "industry": str(raw.get("hybk") or "未分类"),
+            "limit_days": int(_number(statistics.get("days"))),
+            "limit_count": int(_number(statistics.get("ct"))),
+        })
+    return {
+        "epoch": time.time(),
+        "retrieved_at": datetime.now().isoformat(timespec="seconds"),
+        "trade_date": str(data.get("qdate") or ""),
+        "source": "东方财富涨停池（全市场）",
+        "scope": "all_market",
+        "stale": False,
+        "total": int(data.get("tc") or len(items)),
+        "items": items,
+    }
+
+
+def _refresh_limit_pool() -> dict[str, Any]:
+    last_payload: dict[str, Any] = {}
+    for day_offset in range(10):
+        trade_date = (datetime.now() - timedelta(days=day_offset)).strftime("%Y%m%d")
+        parameters = {
+            "ut": "7eea3edcaed734bea9cbfc24409ed989",
+            "dpt": "wz.ztzt",
+            "Pageindex": 0,
+            "pagesize": 200,
+            "sort": "fbt:asc",
+            "date": trade_date,
+        }
+        url = "https://push2ex.eastmoney.com/getTopicZTPool?" + urllib.parse.urlencode(parameters)
+        payload = _http_json(url, timeout=15)
+        last_payload = payload
+        if list((payload.get("data") or {}).get("pool") or []):
+            result = _parse_limit_pool(payload)
+            _write_json(LIMIT_POOL_FILE, result)
+            return result
+    result = _parse_limit_pool(last_payload)
+    if not result["items"]:
+        raise RuntimeError("全市场涨停池暂未返回可用数据")
+    _write_json(LIMIT_POOL_FILE, result)
+    return result
+
+
+def fetch_limit_pool(*, force: bool = False) -> dict[str, Any]:
+    requested_at = time.time()
+    cached = _read_json(LIMIT_POOL_FILE, {})
+    if not force and cached and time.time() - float(cached.get("epoch", 0)) < SNAPSHOT_TTL_SECONDS:
+        return cached
+    with _LIMIT_POOL_REFRESH_LOCK:
+        cached = _read_json(LIMIT_POOL_FILE, {})
+        cache_epoch = float(cached.get("epoch", 0)) if cached else 0
+        if cached and (
+            (not force and time.time() - cache_epoch < SNAPSHOT_TTL_SECONDS)
+            or cache_epoch >= requested_at
+        ):
+            return cached
+        try:
+            return _refresh_limit_pool()
+        except Exception as exc:
+            if cached:
+                result = dict(cached)
+                result["stale"] = True
+                result["warning"] = f"涨停池实时刷新失败，已显示最近快照：{_upstream_error_message(exc)}"
+                return result
+            raise
+
+
 def limit_ladder(universe: dict[str, Any], *, force: bool = False) -> dict[str, Any]:
-    snapshot = fetch_market_snapshot(force=force)
-    candidates = [item for item in snapshot["items"] if item["change"] >= _limit_threshold(item)]
-    candidates.sort(key=lambda item: item["amount"], reverse=True)
-    candidates = candidates[:80]
-    frames, failures = _fetch_assets([{"symbol": item["symbol"], "name": item["name"]} for item in candidates], 20)
+    snapshot = fetch_limit_pool(force=force)
     lookup_group = {}
     for group in universe["stocks"]:
         for asset in group["assets"]:
             lookup_group.setdefault(asset["symbol"], []).append(group["name"])
     ladders: dict[int, list[dict[str, Any]]] = {1: [], 2: [], 3: [], 4: []}
-    for item in candidates:
-        data = frames.get(item["symbol"])
-        streak = 1
-        if data is not None:
-            changes = data["close"].pct_change().dropna()
-            streak = 0
-            threshold = _limit_threshold(item)
-            for value in reversed(changes.tolist()):
-                if value >= threshold:
-                    streak += 1
-                else:
-                    break
-            streak = max(1, streak)
-        bucket = min(4, streak)
-        ladders[bucket].append({**item, "streak": streak, "groups": lookup_group.get(item["symbol"], [])})
-    return {"as_of": snapshot["retrieved_at"], "source": snapshot["source"], "total": len(candidates), "ladders": {str(key): value for key, value in ladders.items()}, "failures": failures}
+    for item in snapshot["items"]:
+        groups = list(dict.fromkeys([*lookup_group.get(item["symbol"], []), item["industry"]]))
+        bucket = min(4, item["streak"])
+        ladders[bucket].append({**item, "groups": groups})
+    for items in ladders.values():
+        items.sort(key=lambda item: (-item["streak"], item["first_limit_time"], -item["sealed_amount"]))
+    return {
+        "as_of": snapshot["retrieved_at"],
+        "trade_date": snapshot.get("trade_date"),
+        "source": snapshot["source"],
+        "scope": snapshot.get("scope", "all_market"),
+        "stale": bool(snapshot.get("stale")),
+        "warning": snapshot.get("warning"),
+        "total": len(snapshot["items"]),
+        "ladders": {str(key): value for key, value in ladders.items()},
+        "failures": [],
+    }
 
 
 def concept_analysis(universe: dict[str, Any], *, force: bool = False) -> dict[str, Any]:

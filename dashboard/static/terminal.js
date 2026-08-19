@@ -31,9 +31,16 @@ function terminalHostError(host, error) {
 function tMoney(value) {
   const number = Number(value || 0);
   const english = window.I18n?.getLocale?.() === 'en-US';
-  if (Math.abs(number) >= 1e12) return `${(number / 1e12).toFixed(2)}${english ? 'T' : '万亿'}`;
-  if (Math.abs(number) >= 1e8) return `${(number / 1e8).toFixed(2)}${english ? 'B' : '亿'}`;
-  if (Math.abs(number) >= 1e4) return `${(number / 1e4).toFixed(2)}${english ? 'K' : '万'}`;
+  if (english) {
+    if (Math.abs(number) >= 1e12) return `${(number / 1e12).toFixed(2)}T`;
+    if (Math.abs(number) >= 1e9) return `${(number / 1e9).toFixed(2)}B`;
+    if (Math.abs(number) >= 1e6) return `${(number / 1e6).toFixed(2)}M`;
+    if (Math.abs(number) >= 1e3) return `${(number / 1e3).toFixed(2)}K`;
+  } else {
+    if (Math.abs(number) >= 1e12) return `${(number / 1e12).toFixed(2)}万亿`;
+    if (Math.abs(number) >= 1e8) return `${(number / 1e8).toFixed(2)}亿`;
+    if (Math.abs(number) >= 1e4) return `${(number / 1e4).toFixed(2)}万`;
+  }
   return fmtNum(number);
 }
 
@@ -214,7 +221,7 @@ async function addMonitorRule(){try{terminalState.monitor=await api('/api/termin
 function monitorThresholdValue(){const type=$('#monitorType').value,value=Number($('#monitorThreshold').value);return type.startsWith('change_')?value/100:value;}
 
 async function loadLadder(force=false){const host=$('#ladderContent');host.innerHTML='<div class="page-loading">正在计算涨停候选与连续涨停天数…</div>';try{terminalState.ladder=await api(`/api/terminal/limit-ladder${force?'?refresh=1':''}`);terminalLoaded.add('ladder');renderLadder();}catch(e){host.innerHTML=`<div class="terminal-error">${escapeHtml(e.message)}</div>`;}}
-function renderLadder(){const host=$('#ladderContent'),d=terminalState.ladder;terminalHostReady(host);host.innerHTML=`${terminalToolbar('连板梯队',`${d.source} · ${d.as_of} · 候选 ${d.total} 只`,'refresh-ladder')}<div class="terminal-warning">连续涨停按日线收盘涨幅和板块阈值近似计算；封单额、炸板次数需要逐笔/盘口数据，当前不伪造。</div><div class="ladder-stack">${[4,3,2,1].map(level=>`<section class="ladder-level level-${level}"><div class="terminal-panel-head"><h3>${level===4?'4板及以上':`${level}板`} · ${(d.ladders[level]||[]).length}</h3></div><div class="ladder-cards">${(d.ladders[level]||[]).map(item=>`<button data-stock-open="${item.symbol}"><strong>${escapeHtml(item.name)}</strong><span>${item.code}</span><b class="positive">${tPct(item.change)}</b><small>${item.streak} 连板 · ${tMoney(item.amount)}</small><div>${(item.groups||[]).map(g=>`<i>${escapeHtml(g)}</i>`).join('')}</div></button>`).join('')||'<span class="terminal-empty">暂无</span>'}</div></section>`).join('')}</div>`;bindTerminalActions(host);}
+function renderLadder(){const host=$('#ladderContent'),d=terminalState.ladder;terminalHostReady(host);const tradeDate=String(d.trade_date||'').replace(/^(\d{4})(\d{2})(\d{2})$/,'$1-$2-$3');host.innerHTML=`${terminalToolbar('连板梯队',`${d.source} · ${tradeDate||d.as_of} · 涨停 ${d.total} 只`,'refresh-ladder')}${d.warning?`<div class="terminal-warning">${escapeHtml(d.warning)}</div>`:'<div class="terminal-note">全市场涨停池数据；连板数、封板时间、炸板次数和封单金额来自行情源。</div>'}<div class="ladder-stack">${[4,3,2,1].map(level=>`<section class="ladder-level level-${level}"><div class="terminal-panel-head"><h3>${level===4?'4板及以上':`${level}板`} · ${(d.ladders[level]||[]).length}</h3></div><div class="ladder-cards">${(d.ladders[level]||[]).map(item=>`<button data-stock-open="${item.symbol}"><strong>${escapeHtml(item.name)}</strong><span>${item.code}</span><b class="positive">${tPct(item.change)}</b><small>${item.streak} 连板 · 首封 ${escapeHtml(item.first_limit_time)}</small><small>封单 ${tMoney(item.sealed_amount)} · 炸板 ${item.break_count}</small><div>${(item.groups||[]).map(g=>`<i>${escapeHtml(g)}</i>`).join('')}</div></button>`).join('')||'<span class="terminal-empty">暂无</span>'}</div></section>`).join('')}</div>`;bindTerminalActions(host);}
 
 async function loadConcepts(force=false){const host=$('#conceptContent');host.innerHTML='<div class="page-loading">正在计算配置板块强弱…</div>';try{terminalState.concepts=await api(`/api/terminal/concepts${force?'?refresh=1':''}`);terminalLoaded.add('concepts');renderConcepts();}catch(e){host.innerHTML=`<div class="terminal-error">${escapeHtml(e.message)}</div>`;}}
 function renderConcepts(){const host=$('#conceptContent'),d=terminalState.concepts;terminalHostReady(host);if(!terminalState.selectedConcept)terminalState.selectedConcept=d.groups[0]?.id;const selected=d.groups.find(g=>g.id===terminalState.selectedConcept)||d.groups[0];host.innerHTML=`${terminalToolbar('概念分析',`${d.as_of} · ${d.scope_note}`,'refresh-concepts')}<div class="concept-kpis">${[['最强主线',d.strongest?.name,tPct(d.strongest?.change)],['最大风险',d.weakest?.name,tPct(d.weakest?.change)],['覆盖板块',d.groups.length,'项目配置池'],['资金活跃',d.groups.slice().sort((a,b)=>b.amount-a.amount)[0]?.name,tMoney(d.groups.slice().sort((a,b)=>b.amount-a.amount)[0]?.amount)]].map(([l,v,n])=>`<div><span>${l}</span><strong>${escapeHtml(v||'—')}</strong><small>${escapeHtml(n||'')}</small></div>`).join('')}</div><div class="heat-columns terminal-panel"><div><h4 class="positive">领涨方向</h4>${d.leaders.map(groupRow).join('')}</div><div><h4 class="negative">领跌方向</h4>${d.laggards.map(groupRow).join('')}</div></div>${selected?conceptDetail(selected):''}`;bindTerminalActions(host);}
@@ -265,5 +272,17 @@ async function terminalViewChanged(view){
 document.addEventListener('DOMContentLoaded',()=>{
   const observer=new MutationObserver(()=>{const active=$('.view.active');if(active)terminalViewChanged(active.id.replace('view-',''));});
   observer.observe(document.querySelector('.main-content'),{subtree:true,attributes:true,attributeFilter:['class']});
+  window.addEventListener('quantpilot:languagechange',()=>{
+    const view=$('.view.active')?.id.replace('view-','');
+    if(view==='market'&&terminalState.market)renderMarket();
+    if(view==='watchlist'&&terminalState.watchlist)renderWatchlist();
+    if(view==='factory'&&terminalState.scan)renderStrategyScan();
+    if(view==='backtest'&&terminalState.backtest)renderBacktestResult();
+    if(view==='monitor'&&terminalState.monitor)renderMonitor();
+    if(view==='ladder'&&terminalState.ladder)renderLadder();
+    if(view==='concepts'&&terminalState.concepts)renderConcepts();
+    if(view==='stock'&&terminalState.stock)renderStockAnalysisResult();
+    if(view==='indices'&&terminalState.indices)renderIndices();
+  });
   window.setTimeout(()=>terminalViewChanged('market'),50);
 });

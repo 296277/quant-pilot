@@ -16,6 +16,57 @@ class MarketTerminalTests(unittest.TestCase):
         self.assertEqual(market_terminal._limit_threshold({"code": "920001", "name": "北交样例"}), 0.295)
         self.assertEqual(market_terminal._limit_threshold({"code": "600001", "name": "ST测试"}), 0.047)
 
+    def test_limit_pool_maps_provider_streak_and_market_fields(self) -> None:
+        payload = {
+            "data": {
+                "tc": 2,
+                "qdate": 20260819,
+                "pool": [
+                    {"c": "600613", "n": "神奇制药", "p": 8540, "zdp": 10.05, "amount": 270000000, "ltsz": 4000000000, "tshare": 4500000000, "hs": 6.9, "lbc": 5, "fbt": 93044, "lbt": 93044, "fund": 250000000, "zbc": 0, "hybk": "化学制药", "zttj": {"days": 5, "ct": 5}},
+                    {"c": "002953", "n": "日丰股份", "p": 11730, "zdp": 10.03, "amount": 250000000, "ltsz": 3200000000, "tshare": 5700000000, "hs": 7.6, "lbc": 2, "fbt": 92500, "lbt": 93024, "fund": 130000000, "zbc": 1, "hybk": "电网设备", "zttj": {"days": 2, "ct": 2}},
+                ],
+            }
+        }
+        result = market_terminal._parse_limit_pool(payload)
+        self.assertEqual(result["total"], 2)
+        self.assertEqual(result["trade_date"], "20260819")
+        self.assertEqual(result["scope"], "all_market")
+        self.assertEqual(result["items"][0]["streak"], 5)
+        self.assertEqual(result["items"][0]["first_limit_time"], "09:30:44")
+        self.assertAlmostEqual(result["items"][1]["price"], 11.73)
+        self.assertAlmostEqual(result["items"][1]["turnover"], 0.076)
+
+    def test_limit_ladder_uses_full_market_pool_streaks(self) -> None:
+        snapshot = {
+            "retrieved_at": "2026-08-19T10:00:00",
+            "trade_date": "20260819",
+            "source": "东方财富涨停池（全市场）",
+            "scope": "all_market",
+            "stale": False,
+            "items": [
+                {"symbol": "sh600613", "code": "600613", "name": "神奇制药", "streak": 5, "industry": "化学制药", "first_limit_time": "09:30:44", "sealed_amount": 2.5e8},
+                {"symbol": "sz002953", "code": "002953", "name": "日丰股份", "streak": 2, "industry": "电网设备", "first_limit_time": "09:25:00", "sealed_amount": 1.3e8},
+            ],
+        }
+        universe = {"stocks": [{"name": "项目板块", "assets": [{"symbol": "sh600613"}]}]}
+        with patch.object(market_terminal, "fetch_limit_pool", return_value=snapshot):
+            result = market_terminal.limit_ladder(universe)
+        self.assertEqual(result["total"], 2)
+        self.assertEqual(result["ladders"]["4"][0]["streak"], 5)
+        self.assertEqual(result["ladders"]["2"][0]["name"], "日丰股份")
+        self.assertEqual(result["ladders"]["4"][0]["groups"], ["项目板块", "化学制药"])
+
+    def test_limit_pool_uses_its_own_cache_when_refresh_fails(self) -> None:
+        cached = {"epoch": 1, "retrieved_at": "2026-08-18T15:00:00", "trade_date": "20260818", "source": "东方财富涨停池（全市场）", "items": [{"symbol": "sh600613"}]}
+        with tempfile.TemporaryDirectory() as temporary:
+            cache = Path(temporary) / "limit_pool.json"
+            cache.write_text(__import__("json").dumps(cached), encoding="utf-8")
+            with patch.object(market_terminal, "LIMIT_POOL_FILE", cache), patch.object(market_terminal, "_refresh_limit_pool", side_effect=ConnectionError("Remote end closed connection without response")):
+                result = market_terminal.fetch_limit_pool(force=True)
+        self.assertTrue(result["stale"])
+        self.assertIn("最近快照", result["warning"])
+        self.assertNotIn("Remote end closed", result["warning"])
+
     def test_stock_symbol_normalization(self) -> None:
         self.assertEqual(market_terminal._stock_symbol("600519"), "sh600519")
         self.assertEqual(market_terminal._stock_symbol("002230"), "sz002230")
