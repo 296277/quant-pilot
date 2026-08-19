@@ -61,11 +61,12 @@ Then run the Windows launcher, or start the service manually:
 | Market analysis | Limit-up ladder, theme, sector, stock, index analysis, and financial-data coverage boundaries |
 | Strategy candidates | Generate and rank up to 14 candidates for A-shares or cryptocurrencies |
 | Strategy library | Trend, breakout, mean reversion, SuperTrend + ADX, Turtle breakout, Bollinger + RSI, MACD + volume, volatility squeeze, multi-timeframe, relative strength, regime adaptive, and signal voting strategies |
-| Parameter Lab | Edit validated strategy parameters and recalculate full-sample and out-of-sample results; save, load, copy, delete, import, and export browser-local strategy versions |
+| Parameter Lab | Edit range-validated parameters, recalculate full/out-of-sample results, compare the original candidate with the user version, and name, save, load, copy, delete, import, or export browser-local versions |
 | Research validation | Train/test separation, out-of-sample return, buy-and-hold benchmark, drawdown, Sharpe, win rate, trade count, and fee modeling |
 | Portfolio backtest | Multi-asset portfolios with capital, position limits, exposure, stop loss, take profit, holding period, and trade details |
-| Local paper trading | Replay a selected strategy through the holdout sample with cash, positions, orders, P&L, and equity history |
-| OKX Demo | Encrypted Demo credentials, balance/position/order/fill sync, adjustable parameters, signal preview, and confirmed simulated orders |
+| Local paper trading | Holdout replay, manual buy/sell, pending limit orders and cancellation, partial fills and rejections, with A-share T+1/lot/cash/price-limit constraints and crypto fractional/minimum quantities |
+| Trading analytics | Equity curve, realized and unrealized P&L, fees, position value, signal source, rejection reasons, CSV export, account clearing, and confirmed replay restart |
+| OKX Demo | Encrypted Demo credentials, account sync, adjustable parameters, signal preview, confirmed simulated orders, and prominent simulation-only labeling |
 | miniQMT | Read-only synchronization of a local QMT A-share account; no order API is called |
 | Data and environment | Unified data mode, coverage, trading date, update time, and live/delayed/cached state, plus parallel health checks for A-share, index, limit-up pool, crypto, and local-file sources |
 

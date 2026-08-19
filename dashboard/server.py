@@ -33,7 +33,11 @@ from dashboard.paper_trading import (  # noqa: E402
     account_view,
     advance_account,
     load_account,
+    orders_csv,
+    place_manual_order,
+    cancel_order,
     reset_account,
+    restart_account,
     start_account,
 )
 from dashboard.broker_adapters import (  # noqa: E402
@@ -740,6 +744,16 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_csv(self, body: str, filename: str = "paper-orders.csv") -> None:
+        encoded = body.encode("utf-8-sig")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(encoded)
+
     def send_error_json(self, exc: Exception, status: HTTPStatus = HTTPStatus.BAD_REQUEST) -> None:
         self.send_json({"error": str(exc)}, status)
 
@@ -777,6 +791,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return
             if parsed.path == "/api/paper/account":
                 self.send_json(account_view(load_account()))
+                return
+            if parsed.path == "/api/paper/orders.csv":
+                account = load_account()
+                if account is None:
+                    raise ValueError("请先创建模拟账户")
+                self.send_csv(orders_csv(account))
                 return
             if parsed.path == "/api/brokers":
                 self.send_json(broker_catalog(account_view(load_account())))
@@ -884,10 +904,38 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     PAPER_DATA_CACHE["default"] = data
                 self.send_json(advance_account(account, data, int(payload.get("steps", 1))))
                 return
+            if parsed.path == "/api/paper/order":
+                account = load_account()
+                if account is None:
+                    raise ValueError("请先创建模拟账户")
+                data = PAPER_DATA_CACHE.get("default")
+                if data is None:
+                    replay_path = safe_project_path(account["replay_dataset"], ("data/processed/paper_trading",))
+                    data = normalize_market_frame(replay_path)
+                    PAPER_DATA_CACHE["default"] = data
+                self.send_json(place_manual_order(account, data, payload))
+                return
+            if parsed.path == "/api/paper/cancel":
+                account = load_account()
+                if account is None:
+                    raise ValueError("请先创建模拟账户")
+                self.send_json(cancel_order(account, int(payload.get("order_id", 0))))
+                return
             if parsed.path == "/api/paper/reset":
                 reset_account()
                 PAPER_DATA_CACHE.pop("default", None)
                 self.send_json({"exists": False})
+                return
+            if parsed.path == "/api/paper/restart":
+                account = load_account()
+                if account is None:
+                    raise ValueError("请先创建模拟账户")
+                data = PAPER_DATA_CACHE.get("default")
+                if data is None:
+                    replay_path = safe_project_path(account["replay_dataset"], ("data/processed/paper_trading",))
+                    data = normalize_market_frame(replay_path)
+                    PAPER_DATA_CACHE["default"] = data
+                self.send_json(restart_account(data, account))
                 return
             self.send_error_json(FileNotFoundError("Endpoint not found"), HTTPStatus.NOT_FOUND)
         except subprocess.TimeoutExpired:

@@ -7,7 +7,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from dashboard.paper_trading import advance_account, load_account, reset_account, start_account
+from dashboard.paper_trading import (
+    advance_account,
+    cancel_order,
+    load_account,
+    orders_csv,
+    place_manual_order,
+    reset_account,
+    restart_account,
+    start_account,
+)
 
 
 def trending_stock(rows: int = 320) -> pd.DataFrame:
@@ -94,6 +103,56 @@ class PaperTradingTests(unittest.TestCase):
             self.assertGreater(advanced["cash"], 0)
             self.assertGreater(advanced["applied_target_fraction"], 0)
             self.assertLess(advanced["applied_target_fraction"], 1)
+
+    def test_manual_stock_orders_enforce_lots_cash_and_t_plus_one(self) -> None:
+        data = trending_stock()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "account.json"
+            start_account(data, self.configuration(), path=path)
+            account = load_account(path)
+            current_price = float(data["close"].iloc[account["current_index"] - 1])
+            bought = place_manual_order(account, data, {"side": "buy", "quantity": 155, "order_type": "market", "price": current_price}, path=path)
+            order = bought["orders"][-1]
+            self.assertEqual(order["status"], "partial")
+            self.assertEqual(order["quantity"], 100)
+            self.assertEqual(order["requested_quantity"], 155)
+            rejected = place_manual_order(load_account(path), data, {"side": "sell", "quantity": 100, "order_type": "market", "price": current_price}, path=path)
+            self.assertEqual(rejected["orders"][-1]["status"], "rejected")
+            self.assertEqual(rejected["orders"][-1]["rejection_reason"], "t_plus_one")
+
+    def test_limit_order_can_be_cancelled_and_exported(self) -> None:
+        data = trending_stock()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "account.json"
+            start_account(data, self.configuration(), path=path)
+            pending = place_manual_order(load_account(path), data, {"side": "buy", "quantity": 100, "order_type": "limit", "price": 1}, path=path)
+            order_id = pending["orders"][-1]["id"]
+            self.assertEqual(pending["orders"][-1]["status"], "pending")
+            cancelled = cancel_order(load_account(path), order_id, path=path)
+            self.assertEqual(cancelled["orders"][-1]["status"], "cancelled")
+            exported = orders_csv(load_account(path))
+            self.assertIn("signal_source", exported)
+            self.assertIn("cancelled_by_user", exported)
+
+    def test_realized_and_unrealized_pnl_are_separate_and_restart_clears_orders(self) -> None:
+        data = trending_stock()
+        config = self.configuration()
+        config["periods_per_year"] = 365
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "account.json"
+            start_account(data, config, path=path)
+            place_manual_order(load_account(path), data, {"side": "buy", "quantity": 10.5, "price": 20}, path=path)
+            account = load_account(path)
+            account["position"]["last_buy_date"] = None
+            account["current_date"] = "2025-01-01"
+            from dashboard.paper_trading import save_account
+            save_account(account, path)
+            sold = place_manual_order(load_account(path), data, {"side": "sell", "quantity": 4.25, "price": 22}, path=path)
+            self.assertNotEqual(sold["metrics"]["realized_pnl"], 0)
+            self.assertNotEqual(sold["metrics"]["unrealized_pnl"], 0)
+            restarted = restart_account(data, load_account(path), path=path)
+            self.assertEqual(restarted["orders"], [])
+            self.assertEqual(restarted["metrics"]["realized_pnl"], 0)
 
 
 if __name__ == "__main__":

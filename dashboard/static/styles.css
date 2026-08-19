@@ -285,7 +285,7 @@ td.mono { font-family: Consolas, monospace; }
 .paper-strategy-band h2 { display: inline-block; margin: 0 0 0 9px; font-size: 19px; }
 .paper-strategy-band p { color: var(--muted); font: 11px Consolas, monospace; margin: 10px 0 0; }
 .paper-strategy-band .parameter-strip { display: flex; grid-column: auto; grid-row: auto; }
-.paper-account-form { display: flex; align-items: flex-end; gap: 12px; padding: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; }
+.paper-account-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; }
 .paper-account-form > div:first-child { flex: 1; align-self: center; }
 .paper-account-form h3 { margin: 0; font-size: 15px; }
 .paper-account-form p { margin: 6px 0 0; color: var(--muted); font-size: 10px; }
@@ -365,6 +365,25 @@ td.mono { font-family: Consolas, monospace; }
 .order-status { padding: 3px 6px; border-radius: 3px; font-size: 9px; }
 .order-status.filled { color: #73d4aa; background: #153126; }
 .order-status.blocked { color: #e7bd63; background: #362e18; }
+.order-status.partial { color: #65c7ff; background: #173044; }
+.order-status.pending { color: #e7bd63; background: #362e18; }
+.order-status.cancelled { color: var(--muted); background: #262a31; }
+.order-status.rejected { color: #ff8b91; background: #3b2024; }
+.strategy-comparison:empty { display: none; }
+.strategy-comparison { padding: 16px; border: 1px solid #31517d; border-radius: 7px; background: #111b2a; }
+.comparison-grid { display: grid; gap: 5px; }
+.comparison-label, .comparison-row { display: grid; grid-template-columns: 1.3fr repeat(3, minmax(80px, 1fr)); gap: 8px; align-items: center; padding: 8px 10px; }
+.comparison-label { color: var(--muted); font-size: 9px; border-bottom: 1px solid var(--line); }
+.comparison-row { background: #151b23; border-radius: 4px; font-size: 10px; }
+.comparison-row span, .comparison-row strong { font-family: Consolas, monospace; text-align: right; }
+.paper-order-entry { display: grid; gap: 12px; }
+.paper-demo-badge { padding: 6px 9px; color: #7ce1b5; background: #153126; border: 1px solid #28604a; border-radius: 4px; font-size: 10px; font-weight: 700; }
+.paper-order-form { display: grid; grid-template-columns: 130px 170px repeat(2, minmax(140px, 1fr)) auto; gap: 10px; align-items: end; }
+.paper-order-form label { display: grid; gap: 5px; color: var(--muted); font-size: 9px; }
+.paper-order-form input, .paper-order-form select { width: 100%; }
+.okx-demo-warning { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 11px 13px; border: 1px solid #2b7054; border-radius: 6px; background: #123025; }
+.okx-demo-warning strong { color: #80e2ba; font-size: 12px; }
+.okx-demo-warning span { color: #a8cbbb; font-size: 10px; }
 
 .table-page { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
 .table-page-header { min-height: 58px; display: flex; align-items: center; padding: 0 15px; border-bottom: 1px solid var(--line); }
@@ -591,6 +610,8 @@ td.mono { font-family: Consolas, monospace; }
   .paper-controls { flex-wrap: wrap; }
   .paper-controls .primary-button, .paper-controls .secondary-button { flex: 1; }
   .paper-main-grid { grid-template-columns: 1fr; }
+  .paper-order-form { grid-template-columns: repeat(2, 1fr); }
+  .paper-order-form .primary-button { grid-column: 1 / -1; }
   .okx-trading-workspace > .section-heading { align-items: stretch; flex-direction: column; }
   .okx-trading-workspace > .section-heading > div { min-width: 0; align-items: flex-start; flex-direction: column; gap: 6px; }
   .okx-trading-workspace > .section-heading h2 { white-space: normal; }
@@ -631,4 +652,7 @@ td.mono { font-family: Consolas, monospace; }
   .okx-strategy-title .secondary-button { width: 100%; }
   .okx-order-form, .okx-parameter-grid, .okx-signal { grid-template-columns: 1fr; }
   .parameter-editor-grid, .data-health-grid { grid-template-columns: 1fr; }
+  .comparison-label, .comparison-row { grid-template-columns: 1fr repeat(3, minmax(62px, 1fr)); padding: 7px 5px; gap: 4px; }
+  .paper-order-form { grid-template-columns: 1fr; }
+  .paper-order-form .primary-button { grid-column: auto; }
 }
