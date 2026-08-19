@@ -51,6 +51,13 @@
         </div>
         <div class="topbar-actions">
           <span class="clock" id="clock"></span>
+          <label class="language-control" for="languageSelect">
+            <span>语言</span>
+            <select id="languageSelect" aria-label="选择界面语言">
+              <option value="zh-CN">简体中文</option>
+              <option value="en-US">English</option>
+            </select>
+          </label>
           <button class="icon-button" id="refreshButton" aria-label="刷新当前页面" title="刷新">↻</button>
         </div>
       </header>
@@ -165,6 +172,7 @@
   </div>
 
   <div class="toast" id="toast" role="status"></div>
+  <script src="/i18n.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/terminal.js" defer></script>
 </body>

@@ -50,7 +50,7 @@ function fmtPct(value, digits = 2) {
 
 function fmtNum(value, digits = 2) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
-  return Number(value).toLocaleString('zh-CN', { maximumFractionDigits: digits });
+  return Number(value).toLocaleString(window.I18n?.localeForIntl?.() || 'zh-CN', { maximumFractionDigits: digits });
 }
 
 function metricClass(value) { return Number(value) >= 0 ? 'positive' : 'negative'; }
@@ -64,7 +64,7 @@ function closeSidebar() {
 
 function toast(message, error = false) {
   const el = $('#toast');
-  el.textContent = message;
+  el.textContent = window.I18n?.t?.(message) || message;
   el.className = `toast show${error ? ' error' : ''}`;
   window.clearTimeout(toast.timer);
   toast.timer = window.setTimeout(() => { el.className = 'toast'; }, 3200);
@@ -73,7 +73,10 @@ function toast(message, error = false) {
 async function api(url, options = {}) {
   const response = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...options });
   const payload = await response.json();
-  if (!response.ok || payload.error) throw new Error(payload.error || `请求失败 (${response.status})`);
+  if (!response.ok || payload.error) {
+    const message = payload.error || `请求失败 (${response.status})`;
+    throw new Error(window.I18n?.t?.(message) || message);
+  }
   return payload;
 }
 
@@ -92,7 +95,7 @@ function setSource(source) {
 
 function updateClock() {
   const now = new Date();
-  $('#clock').textContent = now.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  $('#clock').textContent = now.toLocaleString(window.I18n?.localeForIntl?.() || 'zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 function renderDatasetOptions() {
@@ -748,6 +751,10 @@ function bindEvents() {
   $('#checkEnvironment').addEventListener('click', runEnvironmentCheck);
   $$('.chart-tabs button').forEach((button) => button.addEventListener('click', () => { state.chart = button.dataset.chart; $$('.chart-tabs button').forEach((item) => item.classList.toggle('active', item === button)); if (state.candidates && state.selectedCandidate) renderCandidateDetail(state.candidates.candidates.find((item) => item.id === state.selectedCandidate)); }));
   window.addEventListener('resize', () => { if (state.candidates && state.selectedCandidate) renderCandidateDetail(state.candidates.candidates.find((item) => item.id === state.selectedCandidate)); });
+  window.addEventListener('quantpilot:languagechange', () => {
+    updateClock();
+    window.I18n?.translateDom?.();
+  });
 }
 
 async function init() {

@@ -22,6 +22,19 @@ class DashboardServerTests(unittest.TestCase):
         self.assertNotIn("AbuPy", index)
         self.assertNotIn('id="view-history"', index)
 
+    def test_language_switcher_is_persistent_and_translates_dynamic_content(self) -> None:
+        static_root = Path(__file__).resolve().parents[1] / "dashboard" / "static"
+        index = (static_root / "index.html").read_text(encoding="utf-8")
+        i18n = (static_root / "i18n.js").read_text(encoding="utf-8")
+        self.assertIn('id="languageSelect"', index)
+        self.assertIn('<option value="zh-CN">简体中文</option>', index)
+        self.assertIn('<option value="en-US">English</option>', index)
+        self.assertIn('<script src="/i18n.js" defer></script>', index)
+        self.assertIn("quantpilot-language", i18n)
+        self.assertIn("MutationObserver", i18n)
+        self.assertIn("Market Dashboard", i18n)
+        self.assertIn("Market Regime Adaptive", i18n)
+
     def test_okx_trading_workspace_precedes_large_account_tables(self) -> None:
         app_script = (Path(__file__).resolve().parents[1] / "dashboard" / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("${tradingWorkspace}${accountSnapshot}", app_script)

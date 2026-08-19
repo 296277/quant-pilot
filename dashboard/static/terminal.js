@@ -24,14 +24,16 @@ function terminalHostError(host, error) {
   if (!host) return;
   host.classList.remove('page-loading');
   host.classList.add('terminal-error');
-  host.textContent = error?.message || String(error);
+  const message = error?.message || String(error);
+  host.textContent = window.I18n?.t?.(message) || message;
 }
 
 function tMoney(value) {
   const number = Number(value || 0);
-  if (Math.abs(number) >= 1e12) return `${(number / 1e12).toFixed(2)}万亿`;
-  if (Math.abs(number) >= 1e8) return `${(number / 1e8).toFixed(2)}亿`;
-  if (Math.abs(number) >= 1e4) return `${(number / 1e4).toFixed(2)}万`;
+  const english = window.I18n?.getLocale?.() === 'en-US';
+  if (Math.abs(number) >= 1e12) return `${(number / 1e12).toFixed(2)}${english ? 'T' : '万亿'}`;
+  if (Math.abs(number) >= 1e8) return `${(number / 1e8).toFixed(2)}${english ? 'B' : '亿'}`;
+  if (Math.abs(number) >= 1e4) return `${(number / 1e4).toFixed(2)}${english ? 'K' : '万'}`;
   return fmtNum(number);
 }
 
