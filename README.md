@@ -1,5 +1,7 @@
 # QuantPilot 量化驾驶舱
 
+**语言 / Language:** 简体中文 · [English](README.en.md)
+
 QuantPilot 是一个本地运行的 A 股与虚拟货币量化驾驶舱，提供行情、自选、策略候选、组合回测、
 监控、行业/概念/指数分析、本地模拟交易和 OKX Demo 模拟交易。
 
